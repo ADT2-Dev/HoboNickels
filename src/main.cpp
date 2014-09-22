@@ -34,18 +34,18 @@ unsigned int nTransactionsUpdated = 0;
 map<uint256, CBlockIndex*> mapBlockIndex;
 set<pair<COutPoint, unsigned int> > setStakeSeen;
 uint256 hashGenesisBlock = hashGenesisBlockOfficial;
-static CBigNum bnProofOfWorkLimit(~uint256(0) >> 20);
+static CBigNum bnProofOfWorkLimit(~uint256(0) >> 25);
 static CBigNum bnProofOfStakeLimit(~uint256(0) >> 24);
-static CBigNum bnProofOfStakeHardLimit(~uint256(0) >> 30);
+static CBigNum bnProofOfStakeHardLimit(~uint256(0) >> 30); // disabled temporarily, will be used in the future to fix minimum PoS difficulty at 0.25
 
 
 static CBigNum bnProofOfWorkLimitTestNet(~uint256(0) >> 16);
 static CBigNum bnProofOfStakeLimitTestNet(~uint256(0) >> 20);
 
-unsigned int nStakeMinAge = 60 * 60 * 24 * 10; // minimum age for coin age - 10 days
-unsigned int nStakeMaxAge = 60 * 60 * 24 * 30; // stake age of full weight - 30 days
-unsigned int nStakeTargetSpacing = 1 * 30; // 1-minute block spacing
-int64 nChainStartTime = 1371910049;
+unsigned int nStakeMinAge = 60 * 60 * 24 * 15;	// minimum age for coin age: 15d
+unsigned int nStakeMaxAge = 60 * 60 * 24 * 60;	// stake age of full weight: 30d
+unsigned int nStakeTargetSpacing = 1 * 30;	// 30 sec block spacing
+int64 nChainStartTime = 1392697006;
 int nCoinbaseMaturity = 5;
 int nCoinbaseMaturityMultipiler = 5000;
 CBlockIndex* pindexGenesisBlock = NULL;
@@ -990,69 +990,45 @@ uint256 WantedByOrphan(const CBlock* pblockOrphan)
         pblockOrphan = mapOrphanBlocks[pblockOrphan->hashPrevBlock];
     return pblockOrphan->hashPrevBlock;
 }
-
 // miner's coin base reward based on nBits
 int64 GetProofOfWorkReward(unsigned int nHeight)
 {
-		int64 nSubsidy = 5 * COIN;
+		int64 nSubsidy = 0 * COIN;
 
-    return nSubsidy;	   
+		if (nHeight == 1)
+			nSubsidy = 66800000000 * COIN; // 66,800,000,000 coins
+		else if (nHeight >= 2 )
+	                nSubsidy = 1 * COIN; // Waste electricity, give devs headaches
+                   
+		//printf(">>> nHeight = %d, Reward = %d\n", nHeight, nSubsidy);
+    	return nSubsidy;
 }
 
 // miner's coin stake reward based on nBits and coin age spent (coin-days)
-int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTime, bool bCoinYearOnly)
+int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTime)
 {
     int64 nRewardCoinYear;
-
-    CBigNum bnRewardCoinYearLimit;
-    int64 nRewardCoinYearLimit;
-
 
     if(fTestNet || nTime > PROTOCOL_SWITCH_TIME)
     {
         // Stage 2 of emission process is PoS-based. It will be active on mainNet since 20 Jun 2013.
 
-        if(fTestNet || nTime > POS_REWARD_FIX_TIME2)
-        {
-           bnRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE_FIX2; // Correct Base stake mint rate, 100% year interest
-           nRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE_FIX2;
-        }
-        else if (fTestNet || nTime > POS_REWARD_FIX_TIME)
-        {
-           bnRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE_FIX; // Incorrect Base stake mint rate, 1000% year interest
-           nRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE_FIX;
-        }
-        else
-        {
-           bnRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE; // Incorrect Base stake mint rate, 10% year interest
-           nRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE;
-        }
-
-
+        CBigNum bnRewardCoinYearLimit = MAX_MINT_PROOF_OF_STAKE; // Base stake mint rate, 100% year interest
         CBigNum bnTarget;
-
         bnTarget.SetCompact(nBits);
-
         CBigNum bnTargetLimit = bnProofOfStakeLimit;
-
         bnTargetLimit.SetCompact(bnTargetLimit.GetCompact());
 
-
-        // HoboNickels: reward for coin-year is cut in half every 64x multiply of PoS difficulty
+        // AndroidsTokensv2: reward for coin-year is cut in half every 64x multiply of PoS difficulty
         // A reasonably continuous curve is used to avoid shock to market
-        // (bnRewardCoinYearLimit / nRewardCoinYear) ** 4 == bnProofOfStakeLimit / bnTarget
+        // (nRewardCoinYearLimit / nRewardCoinYear) ** 4 == bnProofOfStakeLimit / bnTarget
         //
         // Human readable form:
         //
         // nRewardCoinYear = 1 / (posdiff ^ 1/4)
 
-        CBigNum bnLowerBound;
-        bnLowerBound = 10 * CENT; // Lower interest bound is 1% per year
-
-
-
+        CBigNum bnLowerBound = 1 * CENT; // Lower interest bound is 1% per year
         CBigNum bnUpperBound = bnRewardCoinYearLimit;
-
         while (bnLowerBound + CENT <= bnUpperBound)
         {
             CBigNum bnMidValue = (bnLowerBound + bnUpperBound) / 2;
@@ -1065,11 +1041,11 @@ int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTi
         }
 
         nRewardCoinYear = bnUpperBound.getuint64();
-        if (nTime > POS_REWARD_SWITCH_TIME)
-           nRewardCoinYear = min(nRewardCoinYear, nRewardCoinYearLimit);
-        else
-           nRewardCoinYear = min((nRewardCoinYear / CENT) * CENT, nRewardCoinYearLimit);
 
+		if (nTime > ROUND_SWITCH_TIME)
+			nRewardCoinYear = min(nRewardCoinYear, MAX_MINT_PROOF_OF_STAKE);
+		else
+		nRewardCoinYear = min((nRewardCoinYear / CENT) * CENT, MAX_MINT_PROOF_OF_STAKE);
     }
     else
     {
@@ -1077,25 +1053,22 @@ int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTi
         nRewardCoinYear = 0.015 * CENT;
     }
 
-    if(bCoinYearOnly)
-        return nRewardCoinYear;
-   
-//Stake calculation fix for small tx values courtesy of Mineral And Yukon Coinelius. This will fix the rounding of small stake rewards to zero
-    int64 nSubsidy = nRewardCoinYear * nCoinAge * 33 / (365 * 33 + 8);
-    if (nTime > POS_REWARD_SWITCH_TIME)
-        nSubsidy = (nCoinAge * 33 * nRewardCoinYear) / (365 * 33 + 8);
-  else
-        nSubsidy = nCoinAge * 33 / (365 * 33 + 8) * nRewardCoinYear;
+    int64 nSubsidy = nCoinAge * 33 / (365 * 33 + 8) * nRewardCoinYear;
 
+	if (nTime > ROUND_SWITCH_TIME)
+		nSubsidy = (nCoinAge * 33 * nRewardCoinYear) / (365 * 33 + 8) ;
+	else
+		nSubsidy = nCoinAge * 33 / (365 * 33 + 8) * nRewardCoinYear;
 
     if (fDebug && GetBoolArg("-printcreation"))
-    printf("GetProofOfStakeReward(): create=%s nCoinAge=%"PRI64d" nBits=%d\n", FormatMoney(nSubsidy).c_str(), nCoinAge, nBits);
-
+        printf("GetProofOfStakeReward(): create=%s nCoinAge=%"PRI64d" nBits=%d\n", FormatMoney(nSubsidy).c_str(), nCoinAge, nBits);
     return nSubsidy;
 }
-static const int64 nTargetTimespan = 0.16 * 24 * 60 * 60;  // 4-hour
-static const int64 nTargetSpacingWorkMax = 12 * nStakeTargetSpacing; // 2-hour
 
+static const int64 nTargetTimespan = 0.16 * 24 * 60 * 60; // 0.16 of a day
+static const int64 nTargetSpacingWorkMax = 12 * nStakeTargetSpacing; // 12 minutes
+
+//
 // maximum nBits value could possible be required nTime after
 //
 unsigned int ComputeMaxBits(CBigNum bnTargetLimit, unsigned int nBase, int64 nTime)
@@ -1140,9 +1113,9 @@ const CBlockIndex* GetLastBlockIndex(const CBlockIndex* pindex, bool fProofOfSta
     return pindex;
 }
 
-unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake)
+unsigned int static GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake)
 {
-  CBigNum bnTargetLimit = !fProofOfStake ? bnProofOfWorkLimit : bnProofOfStakeLimit;
+    CBigNum bnTargetLimit = bnProofOfWorkLimit;
 
     if(fProofOfStake)
     {
@@ -1170,10 +1143,6 @@ unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfS
 
     int64 nActualSpacing = pindexPrev->GetBlockTime() - pindexPrevPrev->GetBlockTime();
 
-    //Tranz saved for later.
-    //int nHeight = pindexPrev->nHeight+1;
-    //if (nHeight >= ???? & nActualSpacing < 0) nActualSpacing = 0;  //Sanity Check on nActualSpacing, corrects negative block values
-
     // ppcoin: target change every block
     // ppcoin: retarget with exponential moving toward target spacing
     CBigNum bnNew;
@@ -1188,6 +1157,7 @@ unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfS
 
     return bnNew.GetCompact();
 }
+
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits)
 {
